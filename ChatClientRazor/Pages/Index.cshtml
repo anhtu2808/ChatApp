@@ -1,0 +1,40 @@
+@page
+@model IndexModel
+@{
+    ViewData["Title"] = "Chat";
+}
+<div class="row">
+    <div class="col-md-3">
+        <div class="mb-3">
+            <label class="form-label">Server Address</label>
+            <input class="form-control" id="serverUrl" placeholder="localhost" />
+        </div>
+        <div class="mb-3">
+            <label class="form-label">Username</label>
+            <input class="form-control" id="username" />
+        </div>
+        <button class="btn btn-primary" id="connectBtn">Connect</button>
+        <button class="btn btn-secondary mt-2" id="disconnectBtn">Disconnect</button>
+        <hr />
+        <strong>Online</strong>
+        <div id="onlineUsers"></div>
+    </div>
+    <div class="col-md-9">
+        <div id="messages" class="border p-2 mb-2" style="height:400px; overflow-y:auto;"></div>
+        <div id="typingStatus" class="fst-italic text-muted"></div>
+        <progress id="progressBar" value="0" max="100" class="w-100 mt-2"></progress>
+        <div class="input-group mt-2">
+            <input type="text" class="form-control" id="messageBox" placeholder="Type a message" />
+            <input type="file" id="imageInput" accept="image/*" hidden />
+            <input type="file" id="fileInput" hidden />
+            <button class="btn btn-outline-secondary" type="button" id="imageBtn">📷</button>
+            <button class="btn btn-outline-secondary" type="button" id="fileBtn">📁</button>
+            <button class="btn btn-success" type="button" id="sendBtn">Send</button>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/microsoft-signalr/7.0.5/signalr.min.js"></script>
+    <script src="~/js/chat.js"></script>
+}

@@ -1,0 +1,351 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chat Client Web</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f0f2f5;
+            margin: 0;
+            padding: 0;
+        }
+        #container {
+            display: flex;
+            margin: 20px;
+            gap: 20px;
+        }
+        #connectPanel, #chatPanel {
+            background: white;
+            padding: 15px;
+            border: 1px solid #ccc;
+            border-radius: 10px;
+        }
+        #connectPanel {
+            width: 25%;
+        }
+        #chatPanel {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+        }
+        #messages {
+            flex: 1;
+            overflow-y: auto;
+            height: 410px;
+            background: #fafafa;
+            padding: 5px;
+            border: 1px solid #eee;
+        }
+        .bubble {
+            max-width: 250px;
+            margin: 5px;
+            padding: 10px;
+            border-radius: 10px;
+        }
+        .mine {
+            background: rgb(204,229,255);
+            margin-left: auto;
+        }
+        .other {
+            background: rgb(230,230,230);
+            margin-right: auto;
+        }
+        #onlineUsers {
+            height: 300px;
+            overflow-y: auto;
+            border: 1px solid #ddd;
+            padding: 5px;
+            background: #f9f9f9;
+            border-radius: 5px;
+        }
+        #inputArea {
+            display: flex;
+            gap: 5px;
+            margin-top: 10px;
+        }
+        #inputArea input[type=text] {
+            flex: 1;
+            padding: 5px;
+        }
+        #progressBar {
+            width: 100%;
+        }
+    </style>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/microsoft-signalr/7.0.5/signalr.min.js"></script>
+</head>
+<body>
+<div id="container">
+    <div id="connectPanel">
+        <div>
+            <label>🌐 Địa chỉ Server</label><br>
+            <input type="text" id="serverUrl" placeholder="localhost" style="width:100%; margin-bottom:10px;">
+        </div>
+        <div>
+            <label>👤 Tên người dùng</label><br>
+            <input type="text" id="username" style="width:100%; margin-bottom:15px;">
+        </div>
+        <button id="connectBtn">🔌 Kết nối</button>
+        <button id="disconnectBtn" style="margin-top:10px;">❌ Ngắt kết nối</button>
+        <div style="margin-top:10px;">
+            <strong>👥 Online</strong>
+            <div id="onlineUsers"></div>
+        </div>
+    </div>
+    <div id="chatPanel">
+        <div id="messages"></div>
+        <div id="typingStatus" style="font-style:italic;color:gray;margin-top:5px;"></div>
+        <progress id="progressBar" value="0" max="100" style="margin-top:5px;"></progress>
+        <div id="inputArea">
+            <input type="text" id="messageBox" placeholder="Nhập tin nhắn" />
+            <input type="file" id="imageInput" accept="image/*" style="display:none;" />
+            <button id="imageBtn">📷</button>
+            <input type="file" id="fileInput" style="display:none;" />
+            <button id="fileBtn">📁 Gửi File</button>
+            <button id="sendBtn">Gửi</button>
+        </div>
+    </div>
+</div>
+<script>
+    let connection = null;
+    let isConnected = false;
+    let typingTimeout = null;
+
+    const connectBtn = document.getElementById('connectBtn');
+    const disconnectBtn = document.getElementById('disconnectBtn');
+    const usernameInput = document.getElementById('username');
+    const serverUrlInput = document.getElementById('serverUrl');
+    const messagesDiv = document.getElementById('messages');
+    const messageBox = document.getElementById('messageBox');
+    const typingStatus = document.getElementById('typingStatus');
+    const progressBar = document.getElementById('progressBar');
+    const onlineUsersDiv = document.getElementById('onlineUsers');
+
+    connectBtn.onclick = async () => {
+        if (isConnected) {
+            alert('Đã kết nối rồi.');
+            return;
+        }
+        const user = usernameInput.value.trim();
+        const ip = serverUrlInput.value.trim();
+        const serverUrl = `http://${ip}:5262`;
+        if (!user || !ip) {
+            alert('Vui lòng nhập đầy đủ tên người dùng và URL server.');
+            return;
+        }
+        connection = new signalR.HubConnectionBuilder()
+            .withUrl(`${serverUrl}/chathub?username=${encodeURIComponent(user)}`)
+            .withAutomaticReconnect()
+            .build();
+
+        connection.on('ReceiveMessage', (user, message) => {
+            if (message.startsWith('[image]'))
+                addImage(user, message.substring(7));
+            else if (message.startsWith('[file]'))
+                addFileLink(user, message.substring(6));
+            else
+                addMessage(user, message);
+        });
+
+        connection.on('UserTyping', user => {
+            typingStatus.textContent = `${user} đang gõ...`;
+        });
+
+        connection.on('UserStoppedTyping', user => {
+            typingStatus.textContent = '';
+        });
+
+        connection.on('UpdateUserList', users => {
+            onlineUsersDiv.innerHTML = '';
+            users.sort((a, b) => b.isOnline - a.isOnline || a.username.localeCompare(b.username));
+            users.forEach(u => {
+                const div = document.createElement('div');
+                div.textContent = `${u.isOnline ? '🟢' : '⚪'} ${u.username}`;
+                onlineUsersDiv.appendChild(div);
+            });
+        });
+
+        try {
+            await connection.start();
+            await connection.invoke('Register', user);
+            isConnected = true;
+            alert('Kết nối thành công!');
+            usernameInput.disabled = true;
+            serverUrlInput.disabled = true;
+        } catch (err) {
+            alert('Không thể kết nối server: ' + err);
+        }
+    };
+
+    disconnectBtn.onclick = async () => {
+        if (connection && isConnected) {
+            try {
+                await connection.stop();
+            } catch (err) { console.error(err); }
+        }
+        isConnected = false;
+        connection = null;
+        messagesDiv.innerHTML = '';
+        onlineUsersDiv.innerHTML = '';
+        typingStatus.textContent = '';
+        progressBar.value = 0;
+        usernameInput.disabled = false;
+        serverUrlInput.disabled = false;
+        alert('Đã ngắt kết nối');
+    };
+
+    document.getElementById('sendBtn').onclick = async () => {
+        if (!isConnected) {
+            alert('Vui lòng kết nối server trước.');
+            return;
+        }
+        const user = usernameInput.value.trim();
+        const message = messageBox.value.trim();
+        if (user && message) {
+            await connection.invoke('SendMessage', user, message);
+            messageBox.value = '';
+        }
+    };
+
+    messageBox.addEventListener('input', async () => {
+        if (!isConnected) return;
+        await connection.invoke('Typing', usernameInput.value.trim());
+        if (typingTimeout) clearTimeout(typingTimeout);
+        typingTimeout = setTimeout(() => {
+            connection.invoke('StopTyping', usernameInput.value.trim());
+        }, 1500);
+    });
+
+    document.getElementById('imageBtn').onclick = () => {
+        document.getElementById('imageInput').click();
+    };
+
+    document.getElementById('fileBtn').onclick = () => {
+        document.getElementById('fileInput').click();
+    };
+
+    document.getElementById('imageInput').onchange = async (e) => {
+        if (!isConnected) return;
+        const file = e.target.files[0];
+        if (!file) return;
+        const ip = serverUrlInput.value.trim();
+        const url = `http://${ip}:5262/api/imageupload`;
+        const form = new FormData();
+        form.append('file', file);
+        try {
+            const resp = await fetch(url, { method: 'POST', body: form });
+            if (resp.ok) {
+                const data = await resp.json();
+                await connection.invoke('SendMessage', usernameInput.value.trim(), '[image]' + data.url);
+            } else {
+                alert('Upload ảnh thất bại');
+            }
+        } catch (err) { alert('Lỗi gửi ảnh: ' + err); }
+        e.target.value = '';
+    };
+
+    document.getElementById('fileInput').onchange = async (e) => {
+        if (!isConnected) return;
+        const file = e.target.files[0];
+        if (!file) return;
+        const ip = serverUrlInput.value.trim();
+        const url = `http://${ip}:5262/api/fileupload`;
+        const form = new FormData();
+        form.append('file', file);
+        progressBar.value = 0;
+        try {
+            const respText = await uploadWithProgress(url, form, p => progressBar.value = p);
+            progressBar.value = 0;
+            const data = JSON.parse(respText);
+            await connection.invoke('SendMessage', usernameInput.value.trim(), '[file]' + data.url);
+        } catch (err) {
+            alert('Upload file thất bại');
+        }
+        e.target.value = '';
+    };
+
+    async function uploadWithProgress(url, form, onProgress) {
+        const xhr = new XMLHttpRequest();
+        const promise = new Promise((resolve, reject) => {
+            xhr.open('POST', url, true);
+            xhr.upload.onprogress = e => {
+                if (e.lengthComputable) {
+                    const percent = (e.loaded / e.total) * 100;
+                    onProgress(percent);
+                }
+            };
+            xhr.onload = () => {
+                if (xhr.status >= 200 && xhr.status < 300) resolve(xhr.response);
+                else reject(xhr.statusText);
+            };
+            xhr.onerror = () => reject('Network error');
+        });
+        xhr.send(form);
+        return promise;
+    }
+
+    function addMessage(user, msg) {
+        const div = document.createElement('div');
+        div.classList.add('bubble');
+        div.classList.add(user === usernameInput.value.trim() ? 'mine' : 'other');
+        if (user !== usernameInput.value.trim()) {
+            const name = document.createElement('div');
+            name.style.fontWeight = 'bold';
+            name.style.color = 'gray';
+            name.style.marginBottom = '3px';
+            name.textContent = user;
+            div.appendChild(name);
+        }
+        const text = document.createElement('div');
+        text.textContent = msg;
+        div.appendChild(text);
+        messagesDiv.appendChild(div);
+        messagesDiv.scrollTop = messagesDiv.scrollHeight;
+    }
+
+    function addImage(user, url) {
+        const div = document.createElement('div');
+        div.classList.add('bubble');
+        div.classList.add(user === usernameInput.value.trim() ? 'mine' : 'other');
+        if (user !== usernameInput.value.trim()) {
+            const name = document.createElement('div');
+            name.style.fontWeight = 'bold';
+            name.style.color = 'gray';
+            name.style.marginBottom = '3px';
+            name.textContent = user;
+            div.appendChild(name);
+        }
+        const img = document.createElement('img');
+        img.src = url;
+        img.style.width = '200px';
+        img.style.height = '150px';
+        img.style.objectFit = 'cover';
+        div.appendChild(img);
+        messagesDiv.appendChild(div);
+        messagesDiv.scrollTop = messagesDiv.scrollHeight;
+    }
+
+    function addFileLink(user, url) {
+        const div = document.createElement('div');
+        div.classList.add('bubble');
+        div.classList.add(user === usernameInput.value.trim() ? 'mine' : 'other');
+        if (user !== usernameInput.value.trim()) {
+            const name = document.createElement('div');
+            name.style.fontWeight = 'bold';
+            name.style.color = 'gray';
+            name.style.marginBottom = '3px';
+            name.textContent = user;
+            div.appendChild(name);
+        }
+        const a = document.createElement('a');
+        a.href = url;
+        a.textContent = '📎 ' + url.split('/').pop();
+        a.download = '';
+        div.appendChild(a);
+        messagesDiv.appendChild(div);
+        messagesDiv.scrollTop = messagesDiv.scrollHeight;
+    }
+</script>
+</body>
+</html>
